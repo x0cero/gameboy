@@ -16,6 +16,7 @@ fn rgb555(lo: u8, hi: u8) -> u32 {
     (r << 19 | r >> 2 << 16) | (g << 11 | g >> 2 << 8) | (b << 3 | b >> 2)
 }
 
+#[derive(bincode::Encode, bincode::Decode)]
 pub struct Ppu {
     pub cgb: bool,
     /// Two 8KB banks; DMG only uses the first.

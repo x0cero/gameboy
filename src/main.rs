@@ -100,13 +100,53 @@ fn main() -> ExitCode {
     .expect("failed to open window");
     window.set_target_fps(60);
 
+    let state_path = format!("{rom_path}.state");
     let mut frame_count = 0u64;
+    let mut paused = false;
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let mut cycles = 0;
-        while cycles < CYCLES_PER_FRAME {
-            let mcycles = cpu.step();
-            cycles += mcycles * 4;
-            cpu.bus.tick(mcycles * 4);
+        // F5 = save state, F7 = load state, P = pause, hold Tab = fast-forward.
+        if window.is_key_pressed(Key::F5, minifb::KeyRepeat::No) {
+            match bincode::encode_to_vec(&cpu, bincode::config::standard()) {
+                Ok(bytes) => {
+                    if let Err(e) = std::fs::write(&state_path, bytes) {
+                        eprintln!("save state failed: {e}");
+                    } else {
+                        eprintln!("state saved");
+                    }
+                }
+                Err(e) => eprintln!("save state failed: {e}"),
+            }
+        }
+        if window.is_key_pressed(Key::F7, minifb::KeyRepeat::No) {
+            match std::fs::read(&state_path)
+                .map_err(|e| e.to_string())
+                .and_then(|b| {
+                    bincode::decode_from_slice::<cpu::Cpu, _>(&b, bincode::config::standard())
+                        .map_err(|e| e.to_string())
+                }) {
+                Ok((loaded, _)) => {
+                    cpu = loaded;
+                    eprintln!("state loaded");
+                }
+                Err(e) => eprintln!("load state failed: {e}"),
+            }
+        }
+        if window.is_key_pressed(Key::P, minifb::KeyRepeat::No) {
+            paused = !paused;
+        }
+        let turbo = window.is_key_down(Key::Tab);
+
+        if !paused {
+            let frames = if turbo { 4 } else { 1 };
+            let mut cycles = 0;
+            while cycles < CYCLES_PER_FRAME * frames {
+                let mcycles = cpu.step();
+                cycles += mcycles * 4;
+                cpu.bus.tick(mcycles * 4);
+            }
+        }
+        if turbo || paused {
+            cpu.bus.apu.samples.clear(); // keep audio in sync with real time
         }
 
         // Joypad: active-low. Z=A, X=B, Enter=Start, RightShift=Select, arrows=dpad.
@@ -138,4 +178,38 @@ fn main() -> ExitCode {
     }
     cpu.bus.save_cart();
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Save-state round trip: run a while, snapshot, run on, restore, and
+    /// confirm the restored machine replays identically.
+    #[test]
+    fn save_state_round_trip() {
+        let cart = cartridge::Cartridge::load("tests/roms/cpu_instrs/cpu_instrs.gb").unwrap();
+        let mut cpu = cpu::Cpu::new(bus::Bus::new(cart));
+        for _ in 0..500_000 {
+            let m = cpu.step();
+            cpu.bus.tick(m * 4);
+        }
+        let snap = bincode::encode_to_vec(&cpu, bincode::config::standard()).unwrap();
+
+        // Advance the live machine, then restore and advance the copy equally.
+        for _ in 0..100_000 {
+            let m = cpu.step();
+            cpu.bus.tick(m * 4);
+        }
+        let (mut restored, _): (cpu::Cpu, usize) =
+            bincode::decode_from_slice(&snap, bincode::config::standard()).unwrap();
+        for _ in 0..100_000 {
+            let m = restored.step();
+            restored.bus.tick(m * 4);
+        }
+        assert_eq!(cpu.pc, restored.pc);
+        assert_eq!(cpu.sp, restored.sp);
+        assert_eq!(cpu.af(), restored.af());
+        assert_eq!(cpu.hl(), restored.hl());
+    }
 }

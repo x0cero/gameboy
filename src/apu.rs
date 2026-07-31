@@ -12,7 +12,7 @@ const DUTY: [[u8; 8]; 4] = [
     [0, 1, 1, 1, 1, 1, 1, 0],
 ];
 
-#[derive(Default)]
+#[derive(Default, bincode::Encode, bincode::Decode)]
 struct Square {
     enabled: bool,
     dac: bool,
@@ -128,7 +128,7 @@ impl Square {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, bincode::Encode, bincode::Decode)]
 struct Wave {
     enabled: bool,
     dac: bool,
@@ -141,7 +141,7 @@ struct Wave {
     sample: u8,
 }
 
-#[derive(Default)]
+#[derive(Default, bincode::Encode, bincode::Decode)]
 struct Noise {
     enabled: bool,
     dac: bool,
@@ -186,6 +186,7 @@ impl Noise {
     }
 }
 
+#[derive(bincode::Encode, bincode::Decode)]
 pub struct Apu {
     ch1: Square,
     ch2: Square,

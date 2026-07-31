@@ -12,6 +12,7 @@ use crate::ppu::Ppu;
 ///   FF00-FF7F  I/O registers
 ///   FF80-FFFE  high RAM
 ///   FFFF       interrupt enable
+#[derive(bincode::Encode, bincode::Decode)]
 pub struct Bus {
     cart: Cartridge,
     pub ppu: Ppu,

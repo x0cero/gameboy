@@ -1,0 +1,5 @@
+target/
+*.ppm
+*.png
+*.sav
+tests/

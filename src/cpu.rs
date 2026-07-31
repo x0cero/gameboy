@@ -26,9 +26,10 @@ pub struct Cpu {
 
 impl Cpu {
     /// Register state after the boot ROM hands off to the cartridge at 0x0100.
+    /// A distinguishes hardware: 0x01 = DMG, 0x11 = CGB (games check this).
     pub fn new(bus: Bus) -> Self {
         Self {
-            a: 0x01,
+            a: if bus.cgb { 0x11 } else { 0x01 },
             f: 0xB0,
             b: 0x00,
             c: 0x13,
@@ -349,7 +350,15 @@ impl Cpu {
         let opcode = self.fetch8();
         match opcode {
             0x00 => 1, // NOP
-            0x10 => { self.fetch8(); 1 } // STOP: treat as 2-byte NOP
+            // STOP: on CGB with a speed switch armed (KEY1 bit 0), toggles
+            // between normal and double speed. Otherwise a 2-byte NOP.
+            0x10 => {
+                self.fetch8();
+                if self.bus.key1 & 0x01 != 0 {
+                    self.bus.key1 = !self.bus.key1 & 0x80;
+                }
+                1
+            }
 
             // LD r, r' block. 0x76 in the middle is HALT.
             0x76 => { self.halted = true; 1 }

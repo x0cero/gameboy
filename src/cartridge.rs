@@ -75,6 +75,11 @@ impl Cartridge {
         })
     }
 
+    /// Header 0x143 bit 7: cartridge supports (or requires) CGB mode.
+    pub fn cgb(&self) -> bool {
+        self.rom[0x143] & 0x80 != 0
+    }
+
     pub fn title(&self) -> String {
         self.rom[0x134..0x144]
             .iter()

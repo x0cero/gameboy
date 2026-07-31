@@ -1,13 +1,26 @@
-/// The DMG picture processing unit. Draws 160x144 pixels, one scanline at a
-/// time, 456 T-cycles per line, 154 lines per frame (144 visible + 10 vblank).
+/// The picture processing unit, DMG and CGB modes. Draws 160x144 pixels, one
+/// scanline at a time, 456 T-cycles per line, 154 lines per frame.
 pub const WIDTH: usize = 160;
 pub const HEIGHT: usize = 144;
 
 /// DMG green-ish palette, ARGB for minifb.
-const COLORS: [u32; 4] = [0x00E0F8D0, 0x0088C070, 0x00346856, 0x00081820];
+const DMG_COLORS: [u32; 4] = [0x00E0F8D0, 0x0088C070, 0x00346856, 0x00081820];
+
+/// Convert CGB 15-bit BGR555 palette entries to ARGB.
+fn rgb555(lo: u8, hi: u8) -> u32 {
+    let c = u16::from_le_bytes([lo, hi]);
+    let r = (c & 0x1F) as u32;
+    let g = ((c >> 5) & 0x1F) as u32;
+    let b = ((c >> 10) & 0x1F) as u32;
+    // 5-bit to 8-bit: shift and fill low bits so white is pure white.
+    (r << 19 | r >> 2 << 16) | (g << 11 | g >> 2 << 8) | (b << 3 | b >> 2)
+}
 
 pub struct Ppu {
-    pub vram: [u8; 0x2000],
+    pub cgb: bool,
+    /// Two 8KB banks; DMG only uses the first.
+    pub vram: [u8; 0x4000],
+    pub vbk: u8, // FF4F: active VRAM bank
     pub oam: [u8; 0xA0],
 
     // Registers
@@ -17,11 +30,17 @@ pub struct Ppu {
     pub scx: u8,  // FF43
     pub ly: u8,   // FF44 current scanline
     pub lyc: u8,  // FF45 scanline compare
-    pub bgp: u8,  // FF47 background palette
-    pub obp0: u8, // FF48 sprite palettes
+    pub bgp: u8,  // FF47 background palette (DMG)
+    pub obp0: u8, // FF48 sprite palettes (DMG)
     pub obp1: u8, // FF49
     pub wy: u8,   // FF4A window position
     pub wx: u8,   // FF4B
+
+    // CGB palette RAM: 8 palettes x 4 colors x 2 bytes, for BG and OBJ.
+    bg_pal: [u8; 64],
+    obj_pal: [u8; 64],
+    bgpi: u8, // FF68: index | auto-increment bit
+    obpi: u8, // FF6A
 
     line_cycles: u32,
     window_line: u8, // internal counter: window rendering position
@@ -33,9 +52,11 @@ pub struct Ppu {
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(cgb: bool) -> Self {
         Self {
-            vram: [0; 0x2000],
+            cgb,
+            vram: [0; 0x4000],
+            vbk: 0,
             oam: [0; 0xA0],
             lcdc: 0x91,
             stat: 0x85,
@@ -48,12 +69,24 @@ impl Ppu {
             obp1: 0xFF,
             wy: 0,
             wx: 0,
+            bg_pal: [0xFF; 64],
+            obj_pal: [0xFF; 64],
+            bgpi: 0,
+            obpi: 0,
             line_cycles: 0,
             window_line: 0,
-            framebuffer: [COLORS[0]; WIDTH * HEIGHT],
+            framebuffer: [DMG_COLORS[0]; WIDTH * HEIGHT],
             frame_ready: false,
             irq: 0,
         }
+    }
+
+    pub fn read_vram(&self, addr: u16) -> u8 {
+        self.vram[self.vbk as usize * 0x2000 + (addr - 0x8000) as usize]
+    }
+
+    pub fn write_vram(&mut self, addr: u16, val: u8) {
+        self.vram[self.vbk as usize * 0x2000 + (addr - 0x8000) as usize] = val;
     }
 
     fn set_mode(&mut self, mode: u8) {
@@ -128,10 +161,11 @@ impl Ppu {
         }
     }
 
-    /// Tile pixel lookup: returns color index 0-3 for a tile row byte pair.
-    fn tile_pixel(&self, tile_addr: usize, x: u8, y: u8) -> u8 {
-        let lo = self.vram[tile_addr + y as usize * 2];
-        let hi = self.vram[tile_addr + y as usize * 2 + 1];
+    /// Tile pixel lookup in a specific VRAM bank: color index 0-3.
+    fn tile_pixel(&self, bank: usize, tile_addr: usize, x: u8, y: u8) -> u8 {
+        let base = bank * 0x2000 + tile_addr;
+        let lo = self.vram[base + y as usize * 2];
+        let hi = self.vram[base + y as usize * 2 + 1];
         let bit = 7 - x;
         ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1)
     }
@@ -146,33 +180,66 @@ impl Ppu {
         }
     }
 
+    /// Draw one background/window pixel into the line buffers.
+    /// map_x/map_y are coordinates within the 256x256 tilemap.
+    fn bg_pixel(&self, map_base: usize, map_x: u8, map_y: u8) -> (u32, u8, bool) {
+        let map_idx = map_base + (map_y / 8) as usize * 32 + (map_x / 8) as usize;
+        let tile_idx = self.vram[map_idx];
+        if self.cgb {
+            // Bank 1 holds per-tile attributes at the same map offset.
+            let attr = self.vram[0x2000 + map_idx];
+            let bank = ((attr >> 3) & 1) as usize;
+            let mut tx = map_x % 8;
+            let mut ty = map_y % 8;
+            if attr & 0x20 != 0 {
+                tx = 7 - tx;
+            }
+            if attr & 0x40 != 0 {
+                ty = 7 - ty;
+            }
+            let ci = self.tile_pixel(bank, self.tile_addr(tile_idx), tx, ty);
+            let pal = (attr & 0x07) as usize;
+            let p = pal * 8 + ci as usize * 2;
+            (rgb555(self.bg_pal[p], self.bg_pal[p + 1]), ci, attr & 0x80 != 0)
+        } else {
+            let ci = self.tile_pixel(0, self.tile_addr(tile_idx), map_x % 8, map_y % 8);
+            let shade = (self.bgp >> (ci * 2)) & 0x03;
+            (DMG_COLORS[shade as usize], ci, false)
+        }
+    }
+
     fn render_scanline(&mut self) {
         let y = self.ly;
-        let mut bg_indices = [0u8; WIDTH]; // color indices before palette, for sprite priority
+        let mut bg_indices = [0u8; WIDTH]; // pre-palette color index, for sprite priority
+        let mut bg_priority = [false; WIDTH]; // CGB per-tile "BG on top" attribute
+        let mut colors = [DMG_COLORS[0]; WIDTH];
 
-        // Background
-        if self.lcdc & 0x01 != 0 {
+        // Background. On CGB, LCDC bit 0 changes meaning (BG priority master),
+        // but treating it as enable is fine in practice.
+        if self.lcdc & 0x01 != 0 || self.cgb {
             let map_base: usize = if self.lcdc & 0x08 != 0 { 0x1C00 } else { 0x1800 };
             let by = y.wrapping_add(self.scy);
             for x in 0..WIDTH as u8 {
                 let bx = x.wrapping_add(self.scx);
-                let tile_idx = self.vram[map_base + (by / 8) as usize * 32 + (bx / 8) as usize];
-                let ci = self.tile_pixel(self.tile_addr(tile_idx), bx % 8, by % 8);
+                let (color, ci, prio) = self.bg_pixel(map_base, bx, by);
+                colors[x as usize] = color;
                 bg_indices[x as usize] = ci;
+                bg_priority[x as usize] = prio;
             }
         }
 
-        // Window: an opaque layer starting at (WX-7, WY), using its own line counter.
+        // Window: an opaque layer starting at (WX-7, WY), with its own line counter.
         let mut window_drawn = false;
-        if self.lcdc & 0x21 == 0x21 && y >= self.wy && self.wx < 167 {
+        if self.lcdc & 0x20 != 0 && (self.lcdc & 0x01 != 0 || self.cgb) && y >= self.wy && self.wx < 167 {
             let map_base: usize = if self.lcdc & 0x40 != 0 { 0x1C00 } else { 0x1800 };
             let wy = self.window_line;
             let start_x = self.wx.saturating_sub(7);
             for x in start_x..WIDTH as u8 {
                 let wx = x + 7 - self.wx;
-                let tile_idx = self.vram[map_base + (wy / 8) as usize * 32 + (wx / 8) as usize];
-                let ci = self.tile_pixel(self.tile_addr(tile_idx), wx % 8, wy % 8);
+                let (color, ci, prio) = self.bg_pixel(map_base, wx, wy);
+                colors[x as usize] = color;
                 bg_indices[x as usize] = ci;
+                bg_priority[x as usize] = prio;
                 window_drawn = true;
             }
         }
@@ -180,17 +247,10 @@ impl Ppu {
             self.window_line += 1;
         }
 
-        // Apply background palette
-        let row = &mut self.framebuffer[y as usize * WIDTH..(y as usize + 1) * WIDTH];
-        for (x, px) in row.iter_mut().enumerate() {
-            let shade = (self.bgp >> (bg_indices[x] * 2)) & 0x03;
-            *px = COLORS[shade as usize];
-        }
-
         // Sprites (8x8 or 8x16). Hardware draws at most the first 10 sprites
-        // on the line in OAM order; among those, lower X wins priority (OAM
-        // order breaks ties). We draw lowest-priority first so winners
-        // overwrite.
+        // on the line in OAM order. Priority: DMG lower X wins (OAM order
+        // ties); CGB always OAM order. We draw lowest-priority first so
+        // winners overwrite.
         if self.lcdc & 0x02 != 0 {
             let tall = self.lcdc & 0x04 != 0;
             let height = if tall { 16 } else { 8 };
@@ -198,7 +258,9 @@ impl Ppu {
                 .filter(|i| y.wrapping_sub(self.oam[i * 4].wrapping_sub(16)) < height)
                 .take(10)
                 .collect();
-            line_sprites.sort_by_key(|&i| (self.oam[i * 4 + 1], i));
+            if !self.cgb {
+                line_sprites.sort_by_key(|&i| (self.oam[i * 4 + 1], i));
+            }
             for &i in line_sprites.iter().rev() {
                 let e = i * 4;
                 let sy = self.oam[e].wrapping_sub(16);
@@ -210,25 +272,35 @@ impl Ppu {
                 }
                 let line = y.wrapping_sub(sy);
                 let line = if attr & 0x40 != 0 { height - 1 - line } else { line }; // Y flip
-                let palette = if attr & 0x10 != 0 { self.obp1 } else { self.obp0 };
+                let bank = if self.cgb { ((attr >> 3) & 1) as usize } else { 0 };
                 for px in 0..8u8 {
                     let x = sx.wrapping_add(px);
                     if x as usize >= WIDTH {
                         continue;
                     }
                     let tx = if attr & 0x20 != 0 { 7 - px } else { px }; // X flip
-                    let ci = self.tile_pixel(tile as usize * 16, tx, line);
+                    let ci = self.tile_pixel(bank, tile as usize * 16, tx, line);
                     if ci == 0 {
                         continue; // color 0 is transparent for sprites
                     }
-                    if attr & 0x80 != 0 && bg_indices[x as usize] != 0 {
-                        continue; // behind non-zero background
+                    let behind = (attr & 0x80 != 0 || bg_priority[x as usize])
+                        && bg_indices[x as usize] != 0;
+                    if behind {
+                        continue;
                     }
-                    let shade = (palette >> (ci * 2)) & 0x03;
-                    self.framebuffer[y as usize * WIDTH + x as usize] = COLORS[shade as usize];
+                    colors[x as usize] = if self.cgb {
+                        let p = (attr & 0x07) as usize * 8 + ci as usize * 2;
+                        rgb555(self.obj_pal[p], self.obj_pal[p + 1])
+                    } else {
+                        let palette = if attr & 0x10 != 0 { self.obp1 } else { self.obp0 };
+                        let shade = (palette >> (ci * 2)) & 0x03;
+                        DMG_COLORS[shade as usize]
+                    };
                 }
             }
         }
+
+        self.framebuffer[y as usize * WIDTH..(y as usize + 1) * WIDTH].copy_from_slice(&colors);
     }
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -244,6 +316,11 @@ impl Ppu {
             0xFF49 => self.obp1,
             0xFF4A => self.wy,
             0xFF4B => self.wx,
+            0xFF4F => self.vbk | 0xFE,
+            0xFF68 => self.bgpi,
+            0xFF69 => self.bg_pal[(self.bgpi & 0x3F) as usize],
+            0xFF6A => self.obpi,
+            0xFF6B => self.obj_pal[(self.obpi & 0x3F) as usize],
             _ => 0xFF,
         }
     }
@@ -261,6 +338,21 @@ impl Ppu {
             0xFF49 => self.obp1 = val,
             0xFF4A => self.wy = val,
             0xFF4B => self.wx = val,
+            0xFF4F => self.vbk = val & if self.cgb { 1 } else { 0 },
+            0xFF68 => self.bgpi = val & 0xBF,
+            0xFF69 => {
+                self.bg_pal[(self.bgpi & 0x3F) as usize] = val;
+                if self.bgpi & 0x80 != 0 {
+                    self.bgpi = 0x80 | (self.bgpi + 1) & 0x3F;
+                }
+            }
+            0xFF6A => self.obpi = val & 0xBF,
+            0xFF6B => {
+                self.obj_pal[(self.obpi & 0x3F) as usize] = val;
+                if self.obpi & 0x80 != 0 {
+                    self.obpi = 0x80 | (self.obpi + 1) & 0x3F;
+                }
+            }
             _ => {}
         }
     }

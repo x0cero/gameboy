@@ -1,11 +1,15 @@
+mod apu;
 mod bus;
 mod cartridge;
 mod cpu;
 mod ppu;
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use minifb::{Key, Scale, Window, WindowOptions};
+use std::collections::VecDeque;
 use std::env;
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 
 /// T-cycles per frame: 154 scanlines x 456 cycles.
 const CYCLES_PER_FRAME: u32 = 70224;
@@ -46,11 +50,45 @@ fn main() -> ExitCode {
                         out += &format!("{} {} {}\n", (px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF);
                     }
                     std::fs::write("frame.ppm", out).unwrap();
+                    // Dump captured audio as raw f32le stereo for inspection.
+                    let raw: Vec<u8> =
+                        cpu.bus.apu.samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+                    std::fs::write("samples.raw", raw).unwrap();
                     cpu.bus.save_cart();
                     return ExitCode::SUCCESS;
                 }
             }
         }
+    }
+
+    // Audio: cpal pulls from a shared queue; the emulator pushes into it.
+    // Underrun plays silence, overrun (queue > ~0.25s) drops the oldest.
+    let audio_queue: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let stream = cpal::default_host().default_output_device().map(|dev| {
+        let config = cpal::StreamConfig {
+            channels: 2,
+            sample_rate: apu::SAMPLE_RATE.into(),
+            buffer_size: cpal::BufferSize::Default,
+        };
+        let q = audio_queue.clone();
+        dev.build_output_stream(
+            config,
+            move |out: &mut [f32], _| {
+                let mut q = q.lock().unwrap();
+                for s in out.iter_mut() {
+                    *s = q.pop_front().unwrap_or(0.0);
+                }
+            },
+            |e| eprintln!("audio error: {e}"),
+            None,
+        )
+        .and_then(|s| {
+            s.play()?;
+            Ok(s)
+        })
+    });
+    if let Some(Err(e)) = &stream {
+        eprintln!("audio unavailable: {e}");
     }
 
     let mut window = Window::new(
@@ -77,6 +115,15 @@ fn main() -> ExitCode {
             btn(Key::Z) | btn(Key::X) << 1 | btn(Key::RightShift) << 2 | btn(Key::Enter) << 3;
         cpu.bus.joy_dpad =
             btn(Key::Right) | btn(Key::Left) << 1 | btn(Key::Up) << 2 | btn(Key::Down) << 3;
+
+        {
+            let mut q = audio_queue.lock().unwrap();
+            q.extend(cpu.bus.apu.samples.drain(..));
+            let cap = apu::SAMPLE_RATE as usize / 2; // 0.25s of stereo
+            while q.len() > cap {
+                q.pop_front();
+            }
+        }
 
         cpu.bus.ppu.frame_ready = false;
         window

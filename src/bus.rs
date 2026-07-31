@@ -1,3 +1,4 @@
+use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::ppu::Ppu;
 
@@ -14,6 +15,7 @@ use crate::ppu::Ppu;
 pub struct Bus {
     cart: Cartridge,
     pub ppu: Ppu,
+    pub apu: Apu,
     pub cgb: bool,
     wram: [u8; 0x8000], // 8 banks of 4KB; DMG uses the first two
     svbk: u8,           // FF70: WRAM bank select (CGB)
@@ -44,6 +46,7 @@ impl Bus {
         let cgb = cart.cgb();
         Self {
             ppu: Ppu::new(cgb),
+            apu: Apu::new(),
             cart,
             cgb,
             wram: [0; 0x8000],
@@ -84,6 +87,7 @@ impl Bus {
     pub fn tick(&mut self, tcycles: u32) {
         let ppu_cycles = if self.key1 & 0x80 != 0 { tcycles / 2 } else { tcycles };
         self.ppu.tick(ppu_cycles);
+        self.apu.tick(ppu_cycles);
         if self.ppu.irq != 0 {
             self.if_reg |= self.ppu.irq;
             self.ppu.irq = 0;
@@ -136,6 +140,7 @@ impl Bus {
             0xFF06 => self.tma,
             0xFF07 => self.tac | 0xF8,
             0xFF0F => self.if_reg | 0xE0,
+            0xFF10..=0xFF3F => self.apu.read(addr),
             0xFF4D if self.cgb => self.key1 | 0x7E,
             0xFF55 => 0xFF, // HDMA status: always "done" (transfers are instant)
             0xFF70 if self.cgb => self.svbk | 0xF8,
@@ -169,6 +174,7 @@ impl Bus {
             0xFF06 => self.tma = val,
             0xFF07 => self.tac = val & 0x07,
             0xFF0F => self.if_reg = val & 0x1F,
+            0xFF10..=0xFF3F => self.apu.write(addr, val),
             // OAM DMA: copy 160 bytes from val<<8 into OAM. Instant.
             0xFF46 => {
                 let src = (val as u16) << 8;

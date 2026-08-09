@@ -1,12 +1,19 @@
 use std::fs;
 use std::io;
-use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(not(target_arch = "wasm32"))]
 fn unix_now() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs()
+}
+
+/// In the browser `SystemTime::now` panics, so read the clock through JS.
+#[cfg(target_arch = "wasm32")]
+fn unix_now() -> u64 {
+    (js_sys::Date::now() / 1000.0) as u64
 }
 
 #[derive(PartialEq, Clone, Copy, bincode::Encode, bincode::Decode)]
@@ -41,6 +48,17 @@ pub struct Cartridge {
 impl Cartridge {
     pub fn load(path: &str) -> io::Result<Self> {
         let rom = fs::read(path)?;
+        let save_path = std::path::PathBuf::from(path)
+            .with_extension("sav")
+            .to_string_lossy()
+            .into_owned();
+        Self::from_bytes(rom, save_path)
+    }
+
+    /// Build a cartridge from ROM bytes already in memory. `save_path` is where
+    /// battery RAM is read from and written back to; pass an empty string (as
+    /// the browser frontend does) to keep the save in memory only.
+    pub fn from_bytes(rom: Vec<u8>, save_path: String) -> io::Result<Self> {
         if rom.len() < 0x150 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -76,8 +94,7 @@ impl Cartridge {
             _ => 0x2000, // none declared; keep a bank anyway for sloppy homebrew
         };
 
-        let save_path = std::path::PathBuf::from(path).with_extension("sav");
-        let ram = if has_battery {
+        let ram = if has_battery && !save_path.is_empty() {
             fs::read(&save_path).ok().filter(|d| d.len() == ram_size)
         } else {
             None
@@ -89,7 +106,7 @@ impl Cartridge {
             ram,
             mapper,
             has_battery,
-            save_path: save_path.to_string_lossy().into_owned(),
+            save_path,
             rom_bank: 1,
             ram_bank: 0,
             ram_enabled: false,
@@ -115,7 +132,7 @@ impl Cartridge {
 
     /// Persist battery-backed RAM next to the ROM as <rom>.sav.
     pub fn save(&mut self) {
-        if self.has_battery && self.ram_dirty {
+        if self.has_battery && self.ram_dirty && !self.save_path.is_empty() {
             if let Err(e) = fs::write(&self.save_path, &self.ram) {
                 eprintln!("failed to write save file: {e}");
             }

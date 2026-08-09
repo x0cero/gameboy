@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: gameboy-macos-arm64
+            archive: gameboy-macos-arm64.tar.gz
+          - os: ubuntu-latest
+            name: gameboy-linux-x86_64
+            archive: gameboy-linux-x86_64.tar.gz
+          - os: windows-latest
+            name: gameboy-windows-x86_64.exe
+            archive: gameboy-windows-x86_64.zip
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ALSA headers (cpal build dependency)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          strip target/release/gameboy
+          mv target/release/gameboy ${{ matrix.name }}
+          tar czf ${{ matrix.archive }} ${{ matrix.name }}
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mv target/release/gameboy.exe ${{ matrix.name }}
+          Compress-Archive -Path ${{ matrix.name }} -DestinationPath ${{ matrix.archive }}
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.archive }}

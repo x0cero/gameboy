@@ -4,6 +4,10 @@
 
 A Game Boy and Game Boy Color emulator written from scratch in Rust. No emulation libraries, no reference-code ports: every component was built against the Pan Docs and hardware test ROMs, one failing opcode at a time.
 
+**[Play it in your browser](https://0arch-io.github.io/gameboy/)** — the same core compiled to WebAssembly, with a homebrew game preloaded. Or grab a prebuilt binary from [Releases](https://github.com/0arch-io/gameboy/releases).
+
+![Pokémon Red running](screenshots/pokemon-red.gif)
+
 ![Pokémon Red](screenshots/pokemon2.png) ![µCity in GBC color](screenshots/ucity.png) ![dmg-acid2](screenshots/acid2.png)
 
 ## What it does

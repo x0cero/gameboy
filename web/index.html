@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>gameboy - Rust Game Boy / Game Boy Color emulator</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>gameboy</h1>
+        <p class="sub">
+          A Game Boy and Game Boy Color emulator written in Rust, compiled to
+          WebAssembly. The same core runs the native desktop build.
+        </p>
+      </header>
+
+      <div class="screen-wrap">
+        <canvas id="screen" width="160" height="144"></canvas>
+        <div id="overlay" class="overlay">
+          <button id="start" type="button">Start</button>
+          <p>Audio needs a click before it can play.</p>
+        </div>
+      </div>
+
+      <div class="bar">
+        <span id="status">loading wasm</span>
+        <label class="file">
+          <input id="rom" type="file" accept=".gb,.gbc,.bin" />
+          <span>Load ROM</span>
+        </label>
+      </div>
+
+      <section class="keys">
+        <h2>Controls</h2>
+        <dl>
+          <div><dt>Z</dt><dd>A</dd></div>
+          <div><dt>X</dt><dd>B</dd></div>
+          <div><dt>Enter</dt><dd>Start</dd></div>
+          <div><dt>Shift</dt><dd>Select</dd></div>
+          <div><dt>Arrows</dt><dd>D-pad</dd></div>
+        </dl>
+        <p class="note">
+          The bundled game is Libbet and the Magic Floor, zlib-licensed
+          homebrew. Load your own .gb or .gbc dump with the button above; it is
+          read in the browser and never uploaded.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

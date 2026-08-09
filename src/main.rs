@@ -1,18 +1,10 @@
-mod apu;
-mod bus;
-mod cartridge;
-mod cpu;
-mod ppu;
-
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use gameboy::{CYCLES_PER_FRAME, apu, bus, cartridge, cpu, ppu};
 use minifb::{Key, Scale, Window, WindowOptions};
 use std::collections::VecDeque;
 use std::env;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
-
-/// T-cycles per frame: 154 scanlines x 456 cycles.
-const CYCLES_PER_FRAME: u32 = 70224;
 
 fn main() -> ExitCode {
     let Some(rom_path) = env::args().nth(1) else {

@@ -312,11 +312,13 @@ dependencies = [
 
 [[package]]
 name = "gameboy"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "bincode",
  "cpal",
+ "js-sys",
  "minifb",
+ "wasm-bindgen",
 ]
 
 [[package]]

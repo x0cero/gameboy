@@ -217,6 +217,12 @@ pub struct Apu {
     regs: [u8; 0x30], // raw register bytes for reads
 }
 
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Apu {
     pub fn new() -> Self {
         Self {

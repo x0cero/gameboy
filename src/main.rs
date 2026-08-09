@@ -6,12 +6,15 @@ use std::env;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
+mod voxel;
+
 fn main() -> ExitCode {
     let Some(rom_path) = env::args().nth(1) else {
-        eprintln!("usage: gameboy <rom.gb> [--headless]");
+        eprintln!("usage: gameboy <rom.gb> [--headless] [--3d]");
         return ExitCode::FAILURE;
     };
     let headless = env::args().any(|a| a == "--headless");
+    let mode3d = env::args().any(|a| a == "--3d");
 
     let cart = match cartridge::Cartridge::load(&rom_path) {
         Ok(c) => c,
@@ -24,6 +27,8 @@ fn main() -> ExitCode {
     eprintln!("loaded: {} ({} KB)", cart.title(), cart.rom.len() / 1024);
 
     let mut cpu = cpu::Cpu::new(bus::Bus::new(cart));
+    cpu.bus.ppu.capture_layers = mode3d;
+    let mut voxel = mode3d.then(voxel::Renderer::new);
 
     if headless {
         // Test-ROM mode: no window, serial output goes to stdout. If GB_DUMP
@@ -37,8 +42,15 @@ fn main() -> ExitCode {
                 cpu.bus.ppu.frame_ready = false;
                 frames += 1;
                 if Some(frames) == dump_frames {
-                    let mut out = format!("P3\n{} {}\n255\n", ppu::WIDTH, ppu::HEIGHT);
-                    for px in cpu.bus.ppu.framebuffer.iter() {
+                    let (buf, w, h): (&[u32], usize, usize) = match &mut voxel {
+                        Some(v) => {
+                            v.render(&cpu.bus.ppu);
+                            (&v.buffer, voxel::WIDTH, voxel::HEIGHT)
+                        }
+                        None => (&cpu.bus.ppu.framebuffer, ppu::WIDTH, ppu::HEIGHT),
+                    };
+                    let mut out = format!("P3\n{w} {h}\n255\n");
+                    for px in buf.iter() {
                         out +=
                             &format!("{} {} {}\n", (px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF);
                     }
@@ -89,12 +101,18 @@ fn main() -> ExitCode {
         eprintln!("audio unavailable: {e}");
     }
 
+    // 3D mode renders at 3x internally, so scale the window down to match.
+    let (win_w, win_h, scale) = if mode3d {
+        (voxel::WIDTH, voxel::HEIGHT, Scale::X2)
+    } else {
+        (ppu::WIDTH, ppu::HEIGHT, Scale::X4)
+    };
     let mut window = Window::new(
         &title,
-        ppu::WIDTH,
-        ppu::HEIGHT,
+        win_w,
+        win_h,
         WindowOptions {
-            scale: Scale::X4,
+            scale,
             ..Default::default()
         },
     )
@@ -127,6 +145,7 @@ fn main() -> ExitCode {
                 }) {
                 Ok((loaded, _)) => {
                     cpu = loaded;
+                    cpu.bus.ppu.capture_layers = mode3d;
                     eprintln!("state loaded");
                 }
                 Err(e) => eprintln!("load state failed: {e}"),
@@ -167,9 +186,14 @@ fn main() -> ExitCode {
         }
 
         cpu.bus.ppu.frame_ready = false;
-        window
-            .update_with_buffer(&cpu.bus.ppu.framebuffer, ppu::WIDTH, ppu::HEIGHT)
-            .expect("window update failed");
+        match &mut voxel {
+            Some(v) => {
+                v.render(&cpu.bus.ppu);
+                window.update_with_buffer(&v.buffer, voxel::WIDTH, voxel::HEIGHT)
+            }
+            None => window.update_with_buffer(&cpu.bus.ppu.framebuffer, ppu::WIDTH, ppu::HEIGHT),
+        }
+        .expect("window update failed");
 
         // Flush battery saves about once a second.
         frame_count += 1;

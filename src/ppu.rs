@@ -48,6 +48,15 @@ pub struct Ppu {
 
     pub framebuffer: [u32; WIDTH * HEIGHT],
     pub frame_ready: bool,
+    /// When set (native --3d mode), also capture per-layer data each frame:
+    /// the BG+window composite and the sprite pixels that won compositing.
+    /// Off by default so the normal path pays nothing.
+    pub capture_layers: bool,
+    /// BG+window composite for the last frame (WIDTH*HEIGHT ARGB), only
+    /// filled while capture_layers is set.
+    pub bg_frame: Vec<u32>,
+    /// Visible sprite pixels for the last frame: (screen x, screen y, ARGB).
+    pub sprite_pixels: Vec<(u8, u8, u32)>,
     /// Interrupt requests for the bus to collect: bit 0 vblank, bit 1 stat.
     pub irq: u8,
 }
@@ -78,6 +87,9 @@ impl Ppu {
             window_line: 0,
             framebuffer: [DMG_COLORS[0]; WIDTH * HEIGHT],
             frame_ready: false,
+            capture_layers: false,
+            bg_frame: Vec::new(),
+            sprite_pixels: Vec::new(),
             irq: 0,
         }
     }
@@ -215,6 +227,10 @@ impl Ppu {
 
     fn render_scanline(&mut self) {
         let y = self.ly;
+        if self.capture_layers && y == 0 {
+            self.sprite_pixels.clear();
+            self.bg_frame.resize(WIDTH * HEIGHT, DMG_COLORS[0]);
+        }
         let mut bg_indices = [0u8; WIDTH]; // pre-palette color index, for sprite priority
         let mut bg_priority = [false; WIDTH]; // CGB per-tile "BG on top" attribute
         let mut colors = [DMG_COLORS[0]; WIDTH];
@@ -263,12 +279,17 @@ impl Ppu {
         if window_drawn {
             self.window_line += 1;
         }
+        if self.capture_layers {
+            self.bg_frame[y as usize * WIDTH..(y as usize + 1) * WIDTH].copy_from_slice(&colors);
+        }
 
         // Sprites (8x8 or 8x16). Hardware draws at most the first 10 sprites
         // on the line in OAM order. Priority: DMG lower X wins (OAM order
         // ties); CGB always OAM order. We draw lowest-priority first so
         // winners overwrite.
         if self.lcdc & 0x02 != 0 {
+            // Sprite pixels that won this line, recorded only in capture mode.
+            let mut spr_line = [None::<u32>; WIDTH];
             let tall = self.lcdc & 0x04 != 0;
             let height = if tall { 16 } else { 8 };
             let mut line_sprites: Vec<usize> = (0..40)
@@ -313,7 +334,7 @@ impl Ppu {
                     if behind {
                         continue;
                     }
-                    colors[x as usize] = if self.cgb {
+                    let color = if self.cgb {
                         let p = (attr & 0x07) as usize * 8 + ci as usize * 2;
                         rgb555(self.obj_pal[p], self.obj_pal[p + 1])
                     } else {
@@ -325,6 +346,17 @@ impl Ppu {
                         let shade = (palette >> (ci * 2)) & 0x03;
                         DMG_COLORS[shade as usize]
                     };
+                    colors[x as usize] = color;
+                    if self.capture_layers {
+                        spr_line[x as usize] = Some(color);
+                    }
+                }
+            }
+            if self.capture_layers {
+                for (x, color) in spr_line.iter().enumerate() {
+                    if let Some(color) = color {
+                        self.sprite_pixels.push((x as u8, y, *color));
+                    }
                 }
             }
         }

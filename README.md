@@ -6,6 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange.svg)
 
+**[Play it in your browser](https://0arch-io.github.io/gameboy/)**: the same core compiled to WebAssembly, with a homebrew game preloaded. Prebuilt binaries for macOS, Linux, and Windows are on the [Releases page](https://github.com/0arch-io/gameboy/releases).
+
 <p align="center">
   <img src="screenshots/ucity-demo.gif" width="480" alt="The homebrew game µCity running in Game Boy Color mode, captured from this emulator">
 </p>

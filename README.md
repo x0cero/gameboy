@@ -1,8 +1,10 @@
 # gameboy
 
+[![CI](https://github.com/0arch-io/gameboy/actions/workflows/ci.yml/badge.svg)](https://github.com/0arch-io/gameboy/actions/workflows/ci.yml)
+
 A Game Boy and Game Boy Color emulator written from scratch in Rust. No emulation libraries, no reference-code ports: every component was built against the Pan Docs and hardware test ROMs, one failing opcode at a time.
 
-![Pokémon Red](pokemon2.png) ![µCity in GBC color](ucity.png) ![dmg-acid2](acid2.png)
+![Pokémon Red](screenshots/pokemon2.png) ![µCity in GBC color](screenshots/ucity.png) ![dmg-acid2](screenshots/acid2.png)
 
 ## What it does
 

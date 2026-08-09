@@ -201,7 +201,11 @@ impl Ppu {
             let ci = self.tile_pixel(bank, self.tile_addr(tile_idx), tx, ty);
             let pal = (attr & 0x07) as usize;
             let p = pal * 8 + ci as usize * 2;
-            (rgb555(self.bg_pal[p], self.bg_pal[p + 1]), ci, attr & 0x80 != 0)
+            (
+                rgb555(self.bg_pal[p], self.bg_pal[p + 1]),
+                ci,
+                attr & 0x80 != 0,
+            )
         } else {
             let ci = self.tile_pixel(0, self.tile_addr(tile_idx), map_x % 8, map_y % 8);
             let shade = (self.bgp >> (ci * 2)) & 0x03;
@@ -218,7 +222,11 @@ impl Ppu {
         // Background. On CGB, LCDC bit 0 changes meaning (BG priority master),
         // but treating it as enable is fine in practice.
         if self.lcdc & 0x01 != 0 || self.cgb {
-            let map_base: usize = if self.lcdc & 0x08 != 0 { 0x1C00 } else { 0x1800 };
+            let map_base: usize = if self.lcdc & 0x08 != 0 {
+                0x1C00
+            } else {
+                0x1800
+            };
             let by = y.wrapping_add(self.scy);
             for x in 0..WIDTH as u8 {
                 let bx = x.wrapping_add(self.scx);
@@ -231,8 +239,16 @@ impl Ppu {
 
         // Window: an opaque layer starting at (WX-7, WY), with its own line counter.
         let mut window_drawn = false;
-        if self.lcdc & 0x20 != 0 && (self.lcdc & 0x01 != 0 || self.cgb) && y >= self.wy && self.wx < 167 {
-            let map_base: usize = if self.lcdc & 0x40 != 0 { 0x1C00 } else { 0x1800 };
+        if self.lcdc & 0x20 != 0
+            && (self.lcdc & 0x01 != 0 || self.cgb)
+            && y >= self.wy
+            && self.wx < 167
+        {
+            let map_base: usize = if self.lcdc & 0x40 != 0 {
+                0x1C00
+            } else {
+                0x1800
+            };
             let wy = self.window_line;
             let start_x = self.wx.saturating_sub(7);
             for x in start_x..WIDTH as u8 {
@@ -272,8 +288,16 @@ impl Ppu {
                     tile &= 0xFE;
                 }
                 let line = y.wrapping_sub(sy);
-                let line = if attr & 0x40 != 0 { height - 1 - line } else { line }; // Y flip
-                let bank = if self.cgb { ((attr >> 3) & 1) as usize } else { 0 };
+                let line = if attr & 0x40 != 0 {
+                    height - 1 - line
+                } else {
+                    line
+                }; // Y flip
+                let bank = if self.cgb {
+                    ((attr >> 3) & 1) as usize
+                } else {
+                    0
+                };
                 for px in 0..8u8 {
                     let x = sx.wrapping_add(px);
                     if x as usize >= WIDTH {
@@ -293,7 +317,11 @@ impl Ppu {
                         let p = (attr & 0x07) as usize * 8 + ci as usize * 2;
                         rgb555(self.obj_pal[p], self.obj_pal[p + 1])
                     } else {
-                        let palette = if attr & 0x10 != 0 { self.obp1 } else { self.obp0 };
+                        let palette = if attr & 0x10 != 0 {
+                            self.obp1
+                        } else {
+                            self.obp0
+                        };
                         let shade = (palette >> (ci * 2)) & 0x03;
                         DMG_COLORS[shade as usize]
                     };

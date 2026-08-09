@@ -3,7 +3,10 @@ use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn unix_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 #[derive(PartialEq, Clone, Copy, bincode::Encode, bincode::Decode)]
@@ -39,7 +42,10 @@ impl Cartridge {
     pub fn load(path: &str) -> io::Result<Self> {
         let rom = fs::read(path)?;
         if rom.len() < 0x150 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "ROM smaller than header"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "ROM smaller than header",
+            ));
         }
 
         // Header 0x147: cartridge type (mapper + peripherals).
@@ -53,10 +59,13 @@ impl Cartridge {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
                     format!("unsupported cartridge type {other:#04X}"),
-                ))
+                ));
             }
         };
-        let has_battery = matches!(cart_type, 0x03 | 0x06 | 0x09 | 0x0F | 0x10 | 0x13 | 0x1B | 0x1E);
+        let has_battery = matches!(
+            cart_type,
+            0x03 | 0x06 | 0x09 | 0x0F | 0x10 | 0x13 | 0x1B | 0x1E
+        );
 
         // Header 0x149: RAM size.
         let ram_size = match rom[0x149] {
@@ -160,7 +169,8 @@ impl Cartridge {
     }
 
     pub fn write_ram(&mut self, addr: u16, val: u8) {
-        if self.ram_enabled && self.mapper == Mapper::Mbc3 && (0x08..=0x0C).contains(&self.ram_bank) {
+        if self.ram_enabled && self.mapper == Mapper::Mbc3 && (0x08..=0x0C).contains(&self.ram_bank)
+        {
             // Writing the clock: rebuild the counter with this register changed.
             let mut r = self.rtc_regs();
             r[self.ram_bank - 8] = val;
@@ -169,7 +179,11 @@ impl Cartridge {
                 + r[2] as u64 % 24 * 3600
                 + (r[3] as u64 + ((r[4] as u64 & 1) << 8)) * 86400;
             self.rtc_halt = r[4] & 0x40 != 0;
-            self.rtc_base = if self.rtc_halt { secs } else { unix_now() - secs };
+            self.rtc_base = if self.rtc_halt {
+                secs
+            } else {
+                unix_now() - secs
+            };
             return;
         }
         if self.ram_enabled && !self.ram.is_empty() {
@@ -198,11 +212,7 @@ impl Cartridge {
                 0x2000..=0x3FFF => self.rom_bank = (val & 0x7F).max(1) as usize,
                 0x4000..=0x5FFF => self.ram_bank = (val & 0x0F) as usize,
                 // Latch: snapshot the running clock into the readable registers.
-                0x6000..=0x7FFF => {
-                    if val & 1 != 0 {
-                        self.rtc_latched = self.rtc_regs();
-                    }
-                }
+                0x6000..=0x7FFF if val & 1 != 0 => self.rtc_latched = self.rtc_regs(),
                 _ => {}
             },
             Mapper::Mbc5 => match addr {

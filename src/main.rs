@@ -47,12 +47,18 @@ fn main() -> ExitCode {
                 if Some(frames) == dump_frames {
                     let mut out = format!("P3\n{} {}\n255\n", ppu::WIDTH, ppu::HEIGHT);
                     for px in cpu.bus.ppu.framebuffer.iter() {
-                        out += &format!("{} {} {}\n", (px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF);
+                        out +=
+                            &format!("{} {} {}\n", (px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF);
                     }
                     std::fs::write("frame.ppm", out).unwrap();
                     // Dump captured audio as raw f32le stereo for inspection.
-                    let raw: Vec<u8> =
-                        cpu.bus.apu.samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+                    let raw: Vec<u8> = cpu
+                        .bus
+                        .apu
+                        .samples
+                        .iter()
+                        .flat_map(|s| s.to_le_bytes())
+                        .collect();
                     std::fs::write("samples.raw", raw).unwrap();
                     cpu.bus.save_cart();
                     return ExitCode::SUCCESS;
@@ -67,7 +73,7 @@ fn main() -> ExitCode {
     let stream = cpal::default_host().default_output_device().map(|dev| {
         let config = cpal::StreamConfig {
             channels: 2,
-            sample_rate: apu::SAMPLE_RATE.into(),
+            sample_rate: apu::SAMPLE_RATE,
             buffer_size: cpal::BufferSize::Default,
         };
         let q = audio_queue.clone();
@@ -95,7 +101,10 @@ fn main() -> ExitCode {
         &title,
         ppu::WIDTH,
         ppu::HEIGHT,
-        WindowOptions { scale: Scale::X4, ..Default::default() },
+        WindowOptions {
+            scale: Scale::X4,
+            ..Default::default()
+        },
     )
     .expect("failed to open window");
     window.set_target_fps(60);
@@ -172,7 +181,7 @@ fn main() -> ExitCode {
 
         // Flush battery saves about once a second.
         frame_count += 1;
-        if frame_count % 60 == 0 {
+        if frame_count.is_multiple_of(60) {
             cpu.bus.save_cart();
         }
     }
@@ -188,7 +197,25 @@ mod tests {
     /// confirm the restored machine replays identically.
     #[test]
     fn save_state_round_trip() {
-        let cart = cartridge::Cartridge::load("tests/roms/cpu_instrs/cpu_instrs.gb").unwrap();
+        // The emulator state is a large by-value struct; the default test
+        // stack overflows in debug builds, so run on a roomier thread.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(save_state_round_trip_body)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    fn save_state_round_trip_body() {
+        let rom = "tests/roms/cpu_instrs/cpu_instrs.gb";
+        if !std::path::Path::new(rom).exists() {
+            eprintln!(
+                "skipping: {rom} not found (clone https://github.com/retrio/gb-test-roms into tests/roms)"
+            );
+            return;
+        }
+        let cart = cartridge::Cartridge::load(rom).unwrap();
         let mut cpu = cpu::Cpu::new(bus::Bus::new(cart));
         for _ in 0..500_000 {
             let m = cpu.step();

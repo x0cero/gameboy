@@ -78,7 +78,11 @@ impl Bus {
         if rel < 0x1000 {
             rel
         } else {
-            let bank = if self.cgb { (self.svbk & 0x07).max(1) as usize } else { 1 };
+            let bank = if self.cgb {
+                (self.svbk & 0x07).max(1) as usize
+            } else {
+                1
+            };
             bank * 0x1000 + (rel - 0x1000)
         }
     }
@@ -86,7 +90,11 @@ impl Bus {
     /// Advance timer and PPU by the given number of CPU T-cycles. In double
     /// speed mode the CPU clock doubles but the PPU doesn't, so it gets half.
     pub fn tick(&mut self, tcycles: u32) {
-        let ppu_cycles = if self.key1 & 0x80 != 0 { tcycles / 2 } else { tcycles };
+        let ppu_cycles = if self.key1 & 0x80 != 0 {
+            tcycles / 2
+        } else {
+            tcycles
+        };
         self.ppu.tick(ppu_cycles);
         self.apu.tick(ppu_cycles);
         if self.ppu.irq != 0 {
@@ -127,12 +135,15 @@ impl Bus {
         v
     }
 
+    // Specific IO registers are listed before the 0xFF00..=0xFF7F catch-all;
+    // the overlap is deliberate (first match wins).
+    #[allow(clippy::match_overlapping_arm)]
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.cart.read(addr),
             0x8000..=0x9FFF => self.ppu.read_vram(addr),
             0xA000..=0xBFFF => self.cart.read_ram(addr),
-            0xC000..=0xDFFF | 0xE000..=0xFDFF => self.wram[self.wram_idx(addr)],
+            0xC000..=0xFDFF => self.wram[self.wram_idx(addr)],
             0xFE00..=0xFE9F => self.ppu.oam[(addr - 0xFE00) as usize],
             0xFEA0..=0xFEFF => 0xFF, // unusable region
             0xFF00 => self.joyp(),
@@ -152,12 +163,13 @@ impl Bus {
         }
     }
 
+    #[allow(clippy::match_overlapping_arm)]
     pub fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x7FFF => self.cart.write(addr, val),
             0x8000..=0x9FFF => self.ppu.write_vram(addr, val),
             0xA000..=0xBFFF => self.cart.write_ram(addr, val),
-            0xC000..=0xDFFF | 0xE000..=0xFDFF => {
+            0xC000..=0xFDFF => {
                 let i = self.wram_idx(addr);
                 self.wram[i] = val;
             }
@@ -196,7 +208,8 @@ impl Bus {
                 let len = ((val as u16 & 0x7F) + 1) * 0x10;
                 for i in 0..len {
                     let b = self.read(self.hdma_src.wrapping_add(i));
-                    self.ppu.write_vram(0x8000 + ((self.hdma_dst + i) & 0x1FFF), b);
+                    self.ppu
+                        .write_vram(0x8000 + ((self.hdma_dst + i) & 0x1FFF), b);
                 }
                 self.hdma_src = self.hdma_src.wrapping_add(len);
                 self.hdma_dst = (self.hdma_dst + len) & 0x1FFF;

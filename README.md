@@ -2,11 +2,11 @@
 
 **A Game Boy and Game Boy Color emulator written from scratch in Rust. Runs Pokémon Red start to finish, with all four sound channels.**
 
-[![CI](https://github.com/0arch-io/gameboy/actions/workflows/ci.yml/badge.svg)](https://github.com/0arch-io/gameboy/actions/workflows/ci.yml)
+[![CI](https://github.com/x0cero/gameboy/actions/workflows/ci.yml/badge.svg)](https://github.com/x0cero/gameboy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange.svg)
 
-**[Play it in your browser](https://0arch-io.github.io/gameboy/)**: the same core compiled to WebAssembly, with a homebrew game preloaded. Prebuilt binaries for macOS, Linux, and Windows are on the [Releases page](https://github.com/0arch-io/gameboy/releases).
+**[Play it in your browser](https://x0cero.github.io/gameboy/)**: the same core compiled to WebAssembly, with a homebrew game preloaded. Prebuilt binaries for macOS, Linux, and Windows are on the [Releases page](https://github.com/x0cero/gameboy/releases).
 
 <p align="center">
   <img src="screenshots/ucity-demo.gif" width="480" alt="The homebrew game µCity running in Game Boy Color mode, captured from this emulator">
@@ -59,7 +59,7 @@ No emulation libraries and no ports of reference code: every component was built
 Requires a stable Rust toolchain.
 
 ```sh
-git clone https://github.com/0arch-io/gameboy
+git clone https://github.com/x0cero/gameboy
 cd gameboy
 cargo run --release path/to/rom.gb
 ```
@@ -102,7 +102,7 @@ These are deliberate trade-offs, written down rather than hidden:
 
 ## Part of a series
 
-This is the first in a set of hand-written emulators, each one a step up in hardware complexity. The next is a Game Boy Advance emulator, also in Rust: [0arch-io/gba](https://github.com/0arch-io/gba).
+This is the first in a set of hand-written emulators, each one a step up in hardware complexity. The next is a Game Boy Advance emulator, also in Rust: [x0cero/gba](https://github.com/x0cero/gba).
 
 ## License
 

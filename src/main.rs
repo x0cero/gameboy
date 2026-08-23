@@ -34,6 +34,22 @@ fn main() -> ExitCode {
         // Test-ROM mode: no window, serial output goes to stdout. If GB_DUMP
         // is set, render that many frames then write the screen as a PPM.
         let dump_frames: Option<u32> = env::var("GB_DUMP").ok().and_then(|v| v.parse().ok());
+        // TEMP: GB_INPUT="frame:button,start-end:button,..." scripted input.
+        let script: Vec<(u32, u32, String)> = env::var("GB_INPUT")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|e| {
+                let (range, btn) = e.trim().split_once(':')?;
+                let (s, en) = match range.split_once('-') {
+                    Some((a, b)) => (a.parse().ok()?, b.parse().ok()?),
+                    None => {
+                        let f: u32 = range.parse().ok()?;
+                        (f, f + 7) // hold a single press ~8 frames
+                    }
+                };
+                Some((s, en, btn.to_ascii_lowercase()))
+            })
+            .collect();
         let mut frames = 0u32;
         loop {
             let mcycles = cpu.step();
@@ -41,6 +57,24 @@ fn main() -> ExitCode {
             if cpu.bus.ppu.frame_ready {
                 cpu.bus.ppu.frame_ready = false;
                 frames += 1;
+                let (mut btns, mut dpad) = (0x0Fu8, 0x0Fu8);
+                for (s, en, b) in &script {
+                    if frames >= *s && frames <= *en {
+                        match b.as_str() {
+                            "a" => btns &= !1,
+                            "b" => btns &= !2,
+                            "select" => btns &= !4,
+                            "start" => btns &= !8,
+                            "right" => dpad &= !1,
+                            "left" => dpad &= !2,
+                            "up" => dpad &= !4,
+                            "down" => dpad &= !8,
+                            _ => {}
+                        }
+                    }
+                }
+                cpu.bus.joy_buttons = btns;
+                cpu.bus.joy_dpad = dpad;
                 if Some(frames) == dump_frames {
                     let (buf, w, h): (&[u32], usize, usize) = match &mut voxel {
                         Some(v) => {

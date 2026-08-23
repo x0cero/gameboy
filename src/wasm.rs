@@ -39,6 +39,33 @@ impl Emulator {
         self.title.clone()
     }
 
+    /// Live machine state, for a frontend that wants to show the internals
+    /// while the game runs: the register file as sixteen bit pairs, the
+    /// interrupt master enable, the scanline the pixel pipeline is on, the PPU
+    /// mode out of the low two bits of STAT, and the three bytes sitting at the
+    /// program counter. Every read here takes `&self`, so sampling the machine
+    /// cannot perturb the run.
+    ///
+    /// Layout: [AF, BC, DE, HL, SP, PC, IME, LY, MODE, op, op+1, op+2]
+    pub fn state(&self) -> Vec<u16> {
+        let c = &self.cpu;
+        let ppu = &c.bus.ppu;
+        vec![
+            ((c.a as u16) << 8) | c.f as u16,
+            ((c.b as u16) << 8) | c.c as u16,
+            ((c.d as u16) << 8) | c.e as u16,
+            ((c.h as u16) << 8) | c.l as u16,
+            c.sp,
+            c.pc,
+            c.ime as u16,
+            ppu.ly as u16,
+            (ppu.stat & 0x03) as u16,
+            c.bus.read(c.pc) as u16,
+            c.bus.read(c.pc.wrapping_add(1)) as u16,
+            c.bus.read(c.pc.wrapping_add(2)) as u16,
+        ]
+    }
+
     /// Run until one full frame of cycles has elapsed.
     pub fn step_frame(&mut self) {
         let mut cycles = 0u32;

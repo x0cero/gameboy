@@ -5,6 +5,7 @@
 [![CI](https://github.com/x0cero/gameboy/actions/workflows/ci.yml/badge.svg)](https://github.com/x0cero/gameboy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange.svg)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/KMWnFJ5tre)
 
 **[Play it in your browser](https://x0cero.github.io/gameboy/)**: the same core compiled to WebAssembly, with a homebrew game preloaded. Prebuilt binaries for macOS, Linux, and Windows are on the [Releases page](https://github.com/x0cero/gameboy/releases).
 

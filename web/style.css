@@ -155,3 +155,7 @@ dd {
   font-size: 12px;
   max-width: 60ch;
 }
+
+.note a {
+  color: var(--accent);
+}
